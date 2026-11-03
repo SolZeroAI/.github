@@ -1,0 +1,67 @@
+name: Tegami PR Comment
+
+# Reusable. The caller runs on workflow_run of "Tegami PR Preview" and
+# grants actions: read, contents: read and pull-requests: write.
+# Checkout stays on the caller's default branch, so only trusted
+# release tooling runs with the write token.
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner labels as JSON, for example "ubuntu-latest" or ["self-hosted","arm64","linux"]'
+        type: string
+        default: '"ubuntu-latest"'
+      setup-commands:
+        description: Shell commands to run before nub install, for example native packages
+        type: string
+        default: ""
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Post release preview
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    steps:
+      # A skipped preview job uploads no artifact. Stop quietly in that case.
+      - name: Download release preview
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: tegami-pr-preview
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Check out trusted release tooling
+        if: steps.download.outcome == 'success'
+        uses: actions/checkout@v7
+
+      - name: Set up Nub
+        if: steps.download.outcome == 'success'
+        uses: nubjs/setup-nub@v0
+        with:
+          nub-version: 0.9.6
+          node-version-file: .nvmrc
+          cache-dependency-path: nub.lock
+
+      - name: Run setup commands
+        if: steps.download.outcome == 'success' && inputs.setup-commands != ''
+        run: ${{ inputs.setup-commands }}
+
+      - name: Install dependencies
+        if: steps.download.outcome == 'success'
+        run: nub install --frozen-lockfile
+
+      - name: Post release preview
+        if: steps.download.outcome == 'success'
+        run: nub run tegami pr comment tegami-pr-preview.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
