@@ -31,12 +31,14 @@ jobs:
     timeout-minutes: 10
     steps:
       # A skipped preview job uploads no artifact. Stop quietly in that case.
+      # Download outside the workspace, because checkout empties it.
       - name: Download release preview
         id: download
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           name: tegami-pr-preview
+          path: ${{ runner.temp }}/tegami-pr-preview
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
 
@@ -62,6 +64,6 @@ jobs:
 
       - name: Post release preview
         if: steps.download.outcome == 'success'
-        run: nub run tegami pr comment tegami-pr-preview.md
+        run: nub run tegami pr comment "$RUNNER_TEMP/tegami-pr-preview/tegami-pr-preview.md"
         env:
           GITHUB_TOKEN: ${{ github.token }}
